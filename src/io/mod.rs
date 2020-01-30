@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::context::Context;
+use crate::error::Result;
 use crate::rdd::{Rdd, RddBase};
 use crate::serializable_traits::{Data, SerFunc};
 use downcast_rs::Downcast;
@@ -12,11 +13,15 @@ use thiserror::Error;
 
 mod local_file_reader;
 pub use local_file_reader::{LocalFsReader, LocalFsReaderConfig};
-#[cfg(aws_connector)]
+// #[cfg(aws_connector)]
 mod aws;
 
 pub trait ReaderConfiguration<I: Data> {
-    fn make_reader<F, O>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = O>>
+    fn make_reader<F, O>(
+        self,
+        context: Arc<Context>,
+        decoder: F,
+    ) -> Result<SerArc<dyn Rdd<Item = O>>>
     where
         O: Data,
         F: SerFunc(I) -> O;
@@ -26,4 +31,7 @@ pub trait ReaderConfiguration<I: Data> {
 pub enum IOError {
     #[error("file not found")]
     FileNotFound,
+
+    #[error("credentials not found")]
+    CredentialsNotFound,
 }

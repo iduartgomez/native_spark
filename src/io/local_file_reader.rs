@@ -57,7 +57,11 @@ impl LocalFsReaderConfig {
 }
 
 impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
-    fn make_reader<F, U>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = U>>
+    fn make_reader<F, U>(
+        self,
+        context: Arc<Context>,
+        decoder: F,
+    ) -> Result<SerArc<dyn Rdd<Item = U>>>
     where
         F: SerFunc(Vec<u8>) -> U,
         U: Data,
@@ -72,12 +76,18 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
         let files_per_executor = Arc::new(
             MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
         );
-        SerArc::new(MapperRdd::new(files_per_executor, decoder).pin())
+        Ok(SerArc::new(
+            MapperRdd::new(files_per_executor, decoder).pin(),
+        ))
     }
 }
 
 impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
-    fn make_reader<F, U>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = U>>
+    fn make_reader<F, U>(
+        self,
+        context: Arc<Context>,
+        decoder: F,
+    ) -> Result<SerArc<dyn Rdd<Item = U>>>
     where
         F: SerFunc(PathBuf) -> U,
         U: Data,
@@ -92,7 +102,9 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
         let files_per_executor = Arc::new(
             MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
         );
-        SerArc::new(MapperRdd::new(files_per_executor, decoder).pin())
+        Ok(SerArc::new(
+            MapperRdd::new(files_per_executor, decoder).pin(),
+        ))
     }
 }
 

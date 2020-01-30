@@ -182,7 +182,7 @@ fn test_read_files_bytes() -> Result<()> {
 
     let context = CONTEXT.clone();
     let result = context
-        .read_source(LocalFsReaderConfig::new(file_path), deserializer)
+        .read_source(LocalFsReaderConfig::new(file_path), deserializer)?
         .collect()
         .unwrap();
     assert_eq!(result[0].len(), 2);
@@ -198,7 +198,7 @@ fn test_read_files_bytes() -> Result<()> {
     let files = sc.clone().read_source(
         LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)),
         deserializer,
-    );
+    )?;
     let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
     assert_eq!(result.len(), 20);
 
@@ -222,7 +222,7 @@ fn test_read_files() -> Result<()> {
     set_up(file_name);
     let context = CONTEXT.clone();
     let result = context
-        .read_source(LocalFsReaderConfig::new(file_path), deserializer)
+        .read_source(LocalFsReaderConfig::new(file_path), deserializer)?
         .collect()
         .unwrap();
     assert_eq!(result[0].len(), 2);

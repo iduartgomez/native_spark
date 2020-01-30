@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::io;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -30,6 +31,9 @@ pub enum Error {
 
     #[error("failed to parse the executor port")]
     ExecutorPort(#[source] std::num::ParseIntError),
+
+    #[error("failed while performing r/w operation")]
+    IOError(#[from] io::IOError),
 
     #[error("partitioner not set")]
     LackingPartitioner,

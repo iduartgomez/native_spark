@@ -263,7 +263,7 @@ impl Context {
         self: &Arc<Self>,
         config: C,
         func: F,
-    ) -> impl Rdd<Item = O>
+    ) -> Result<impl Rdd<Item = O>>
     where
         F: SerFunc(I) -> O,
         C: ReaderConfiguration<I>,
@@ -335,6 +335,13 @@ impl Context {
 
     pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionRdd<T>> {
         UnionRdd::new(rdds)
+    }
+
+    pub(crate) fn num_threads(&self) -> usize {
+        match &self.scheduler {
+            Schedulers::Local(scheduler) => scheduler.num_threads(),
+            Schedulers::Distributed(scheduler) => scheduler.num_threads(),
+        }
     }
 }
 

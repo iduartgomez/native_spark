@@ -1,8 +1,15 @@
 use std::io::Read;
+use std::sync::Arc;
 
-use super::*;
+use super::{IOError, ReaderConfiguration};
+use crate::error;
+use crate::rdd::Rdd;
+use crate::serializable_traits::{Data, SerFunc};
+use crate::Context;
 use rusoto_core::Region;
+use rusoto_credential::DefaultCredentialsProvider;
 use rusoto_s3::{GetObjectRequest, S3Client, S3};
+use serde_traitobject::Arc as SerArc;
 
 struct S3Connector {}
 
@@ -28,12 +35,20 @@ impl S3Connector {
 }
 
 impl ReaderConfiguration<Vec<u8>> for S3Connector {
-    fn make_reader<F, U>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = U>>
+    fn make_reader<F, U>(
+        self,
+        context: Arc<Context>,
+        decoder: F,
+    ) -> error::Result<SerArc<dyn Rdd<Item = U>>>
     where
         F: SerFunc(Vec<u8>) -> U,
         U: Data,
     {
-        // 1. Partitionate per total number of cores available; ideally this should maximize throughput
+        let client = DefaultCredentialsProvider::new().map_err(|_| IOError::CredentialsNotFound)?;
+
+        // 1. Partitionate per total number of cores available; ideally this should maximize throughput.
+        let parallelism = context.num_threads();
+
         // 2. Inside each partition func open a blocking connection
         // 3. In parallel fetch files from the given logical dir path from S3; see get_object fn above.
         //    A similar aproach to that of the local reader when finding/filtering files.
