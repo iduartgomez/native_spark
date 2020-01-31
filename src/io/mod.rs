@@ -13,7 +13,7 @@ use thiserror::Error;
 
 mod local_file_reader;
 pub use local_file_reader::{LocalFsReader, LocalFsReaderConfig};
-// #[cfg(aws_connector)]
+#[cfg(aws_connector)]
 mod aws;
 
 pub trait ReaderConfiguration<I: Data> {
@@ -34,4 +34,10 @@ pub enum IOError {
 
     #[error("credentials not found")]
     CredentialsNotFound,
+
+    #[error("connection error with the provider")]
+    ConnectivityError,
+
+    #[error("security issues: {0}")]
+    NotSafe(&'static str),
 }
