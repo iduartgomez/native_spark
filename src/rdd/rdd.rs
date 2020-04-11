@@ -1,12 +1,10 @@
 use std::cmp::Ordering;
 use std::fs;
-use std::future::Future;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::pin::Pin;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc, Weak};
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -18,8 +16,6 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use futures::{FutureExt, Stream, StreamExt};
-use log::info;
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
