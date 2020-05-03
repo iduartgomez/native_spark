@@ -169,6 +169,22 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         });
         shuffle_steep.flat_map(flattener)
     }
+
+    /// Return an RDD with the pairs from `self` whose keys are not in `other`.
+    fn subtract_by_key<W: Data>(
+        &self,
+        other: SerArc<dyn Rdd<Item = (K, W)>>,
+        p: Box<dyn Partitioner>,
+    ) -> SerArc<dyn Rdd<Item = (K, V)>> {
+        SerArc::new(SubtractedRdd::new(self.get_rdd(), other.into(), p))
+    }
+
+    fn keys(&self) -> SerArc<dyn Rdd<Item = K>>
+    where
+        Self: Sized,
+    {
+        self.map(Fn!(|(k, _v)| k))
+    }
 }
 
 // Implementing the PairRdd trait for all types which implements Rdd
@@ -184,8 +200,6 @@ where
     prev: Arc<dyn Rdd<Item = (K, V)>>,
     vals: Arc<RddVals>,
     f: F,
-    _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
-    _marker_v: PhantomData<V>,
     _marker_u: PhantomData<U>,
 }
 
@@ -198,8 +212,6 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
             _marker_u: PhantomData,
         }
     }
@@ -220,8 +232,6 @@ where
             prev,
             vals,
             f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
             _marker_u: PhantomData,
         }
     }
@@ -296,8 +306,6 @@ where
     prev: Arc<dyn Rdd<Item = (K, V)>>,
     vals: Arc<RddVals>,
     f: F,
-    _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
-    _marker_v: PhantomData<V>,
     _marker_u: PhantomData<U>,
 }
 
@@ -310,8 +318,6 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
             _marker_u: PhantomData,
         }
     }
@@ -332,8 +338,6 @@ where
             prev,
             vals,
             f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
             _marker_u: PhantomData,
         }
     }

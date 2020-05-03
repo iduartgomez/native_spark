@@ -39,6 +39,8 @@ pub use flatmapper_rdd::*;
 pub use mapper_rdd::*;
 mod pair_rdd;
 pub use pair_rdd::*;
+mod subtracted_rdd;
+pub use subtracted_rdd::*;
 mod partitionwise_sampled_rdd;
 pub use partitionwise_sampled_rdd::*;
 mod shuffled_rdd;
@@ -1080,6 +1082,23 @@ pub trait Rdd: RddBase + 'static {
 
             Ok(queue.into())
         }
+    }
+
+    /// Return an RDD with the elements from `self` that are not in `other`.
+    fn subtract(
+        &self,
+        other: SerArc<dyn Rdd<Item = Self::Item>>,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self::Item: Data + Eq + Hash,
+        Self: Sized,
+    {
+        let other = other.map(Fn!(|x| (x, None::<Self::Item>)));
+        let part = Box::new(HashPartitioner::<Self::Item>::new(self.number_of_splits()))
+            as Box<dyn Partitioner>;
+        self.map(Fn!(|x| (x, None::<Self::Item>)))
+            .subtract_by_key(other, part)
+            .keys()
     }
 }
 
