@@ -1,10 +1,11 @@
+use std::default::Default;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::aggregator::Aggregator;
 use crate::context::Context;
-use crate::dependency::{Dependency, OneToOneDependency};
+use crate::dependency::{Dependency, OneToOneDependency, ShuffleDependency};
 use crate::error::Result;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::co_grouped_rdd::CoGroupedRdd;
@@ -14,16 +15,6 @@ use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
-
-/**
-
- private[spark] class SubtractedRDD[K: ClassTag, V: ClassTag, W: ClassTag](
-    @transient var rdd1: RDD[_ <: Product2[K, V]],
-    @transient var rdd2: RDD[_ <: Product2[K, W]],
-    part: Partitioner)
-  extends RDD[(K, V)](rdd1.context, Nil) {
-}
-*/
 
 /// An optimized version of cogroup for set difference/subtraction.
 ///
@@ -56,7 +47,7 @@ impl<K: Data, V: Data, W: Data> SubtractedRdd<K, V, W> {
         rdd2: Arc<dyn Rdd<Item = (K, W)>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
-        let mut vals = Arc::new(RddVals::new(rdd1.get_context()));
+        let vals = Arc::new(RddVals::new(rdd1.get_context()));
         SubtractedRdd {
             rdd1,
             rdd2,
@@ -66,7 +57,10 @@ impl<K: Data, V: Data, W: Data> SubtractedRdd<K, V, W> {
     }
 }
 
-impl<K: Data, V: Data, W: Data> RddBase for SubtractedRdd<K, V, W> {
+impl<K, V: Data, W: Data> RddBase for SubtractedRdd<K, V, W>
+where
+    K: Data + Eq + Hash,
+{
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
@@ -89,7 +83,18 @@ impl<K: Data, V: Data, W: Data> RddBase for SubtractedRdd<K, V, W> {
         }
         Seq(rddDependency[K, V](rdd1), rddDependency[K, W](rdd2))
         */
-        self.vals.dependencies.clone()
+
+        log::debug!("Adding shuffle dependency in subtracted rdd");
+        // vec![Dependency::]
+        Dependency::ShuffleDependency(Arc::new(ShuffleDependency::<K, V, K>::new(
+            self.get_context().new_shuffle_id(),
+            true,
+            self.rdd1.get_rdd_base(),
+            Arc::new(None),
+            self.part.clone(),
+        )));
+
+        todo!()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -134,7 +139,10 @@ impl<K: Data, V: Data, W: Data> RddBase for SubtractedRdd<K, V, W> {
     }
 }
 
-impl<K: Data, V: Data, W: Data> Rdd for SubtractedRdd<K, V, W> {
+impl<K, V: Data, W: Data> Rdd for SubtractedRdd<K, V, W>
+where
+    K: Data + Eq + Hash,
+{
     type Item = (K, V);
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>

@@ -92,13 +92,13 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             b1
         }
         let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners(b1, b2)));
-        let aggr = Arc::new(
+        let aggr = Arc::new(Some(
             Aggregator::<K, Box<dyn AnyData>, Vec<Box<dyn AnyData>>>::new(
                 create_combiner,
                 merge_value,
                 merge_combiners,
             ),
-        );
+        ));
         let mut deps = Vec::new();
         for (_index, rdd) in rdds.iter().enumerate() {
             let part = part.clone();

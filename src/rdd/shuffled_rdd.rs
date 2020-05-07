@@ -36,7 +36,7 @@ pub struct ShuffledRdd<K: Data + Eq + Hash, V: Data, C: Data> {
     #[serde(with = "serde_traitobject")]
     parent: Arc<dyn Rdd<Item = (K, V)>>,
     #[serde(with = "serde_traitobject")]
-    aggregator: Arc<Aggregator<K, V, C>>,
+    aggregator: Arc<Option<Aggregator<K, V, C>>>,
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
     part: Box<dyn Partitioner>,
@@ -58,13 +58,13 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Clone for ShuffledRdd<K, V, C> {
 impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
     pub(crate) fn new(
         parent: Arc<dyn Rdd<Item = (K, V)>>,
-        aggregator: Arc<Aggregator<K, V, C>>,
+        aggregator: Aggregator<K, V, C>,
         part: Box<dyn Partitioner>,
     ) -> Self {
         let ctx = parent.get_context();
         let shuffle_id = ctx.new_shuffle_id();
         let mut vals = RddVals::new(ctx);
-
+        let aggregator = Arc::new(Some(aggregator));
         vals.dependencies
             .push(Dependency::ShuffleDependency(Arc::new(
                 ShuffleDependency::new(
@@ -154,10 +154,12 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
         let mut combiners: HashMap<K, Option<C>> = HashMap::new();
         for (k, c) in futures::executor::block_on(fut)?.into_iter() {
             if let Some(old_c) = combiners.get_mut(&k) {
-                let old = old_c.take().unwrap();
-                let input = ((old, c),);
-                let output = self.aggregator.merge_combiners.call(input);
-                *old_c = Some(output);
+                if let Some(aggregator) = &*self.aggregator {
+                    let old = old_c.take().unwrap();
+                    let input = ((old, c),);
+                    let output = aggregator.merge_combiners.call(input);
+                    *old_c = Some(output);
+                }
             } else {
                 combiners.insert(k, Some(c));
             }

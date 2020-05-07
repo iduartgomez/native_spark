@@ -27,7 +27,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
     {
         SerArc::new(ShuffledRdd::new(
             self.get_rdd(),
-            Arc::new(aggregator),
+            aggregator,
             partitioner,
         ))
     }
@@ -158,7 +158,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         // Guarantee the number of partitions by introducing a shuffle phase
         let shuffle_steep = ShuffledRdd::new(
             self.get_rdd(),
-            Arc::new(Aggregator::<K, V, _>::default()),
+            Aggregator::<K, V, _>::default(),
             partitioner,
         );
         // Flatten the results of the combined partitions

@@ -123,7 +123,7 @@ pub(crate) struct ShuffleDependency<K: Data, V: Data, C: Data> {
     #[serde(with = "serde_traitobject")]
     pub rdd_base: Arc<dyn RddBase>,
     #[serde(with = "serde_traitobject")]
-    pub aggregator: Arc<Aggregator<K, V, C>>,
+    pub aggregator: Arc<Option<Aggregator<K, V, C>>>,
     #[serde(with = "serde_traitobject")]
     pub partitioner: Box<dyn Partitioner>,
     is_shuffle: bool,
@@ -134,7 +134,7 @@ impl<K: Data, V: Data, C: Data> ShuffleDependency<K, V, C> {
         shuffle_id: usize,
         is_cogroup: bool,
         rdd_base: Arc<dyn RddBase>,
-        aggregator: Arc<Aggregator<K, V, C>>,
+        aggregator: Arc<Option<Aggregator<K, V, C>>>,
         partitioner: Box<dyn Partitioner>,
     ) -> Self {
         ShuffleDependency {
@@ -201,10 +201,12 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let bucket_id = partitioner.get_partition(&k);
             let bucket = &mut buckets[bucket_id];
             if let Some(old_v) = bucket.get_mut(&k) {
-                let input = ((old_v.clone(), v),);
-                let output = aggregator.merge_value.call(input);
-                *old_v = output;
-            } else {
+                if let Some(aggregator) = &*aggregator {
+                    let input = ((old_v.clone(), v),);
+                    let output = aggregator.merge_value.call(input);
+                    *old_v = output;
+                }
+            } else if let Some(ref aggregator) = &*aggregator {
                 bucket.insert(k, aggregator.create_combiner.call((v,)));
             }
         }
