@@ -25,11 +25,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
-        SerArc::new(ShuffledRdd::new(
-            self.get_rdd(),
-            aggregator,
-            partitioner,
-        ))
+        SerArc::new(ShuffledRdd::new(self.get_rdd(), aggregator, partitioner))
     }
 
     fn group_by_key(&self, num_splits: usize) -> SerArc<dyn Rdd<Item = (K, Vec<V>)>>

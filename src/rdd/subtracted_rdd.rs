@@ -1,20 +1,16 @@
-use std::default::Default;
 use std::hash::Hash;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::aggregator::Aggregator;
 use crate::context::Context;
-use crate::dependency::{Dependency, OneToOneDependency, ShuffleDependency};
+use crate::dependency::{Dependency, ShuffleDependency};
 use crate::error::Result;
-use crate::partitioner::{HashPartitioner, Partitioner};
-use crate::rdd::co_grouped_rdd::CoGroupedRdd;
-use crate::rdd::shuffled_rdd::ShuffledRdd;
+use crate::partitioner::Partitioner;
+use crate::rdd::co_grouped_rdd::{CoGroupSplit, CoGroupSplitDep};
 use crate::rdd::*;
-use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::serializable_traits::{AnyData, Data};
+use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Deserialize, Serialize};
 
 /// An optimized version of cogroup for set difference/subtraction.
 ///
@@ -70,53 +66,48 @@ where
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        /*
-        def rddDependency[T1: ClassTag, T2: ClassTag](rdd: RDD[_ <: Product2[T1, T2]])
-          : Dependency[_] = {
-          if (rdd.partitioner == Some(part)) {
-            logDebug("Adding one-to-one dependency with " + rdd)
-            new OneToOneDependency(rdd)
-          } else {
-            logDebug("Adding shuffle dependency with " + rdd)
-            new ShuffleDependency[T1, T2, Any](rdd, part)
-          }
-        }
-        Seq(rddDependency[K, V](rdd1), rddDependency[K, W](rdd2))
-        */
+        let ctxt = self.get_context();
+        let rdd_dep = |rdd: Arc<dyn RddBase>| {
+            // TODO: custom partitioner case, which should use narrow dependency
+            log::debug!("Adding shuffle dependency in subtracted rdd");
+            Dependency::ShuffleDependency(Arc::new(ShuffleDependency::<K, V, K>::new(
+                ctxt.new_shuffle_id(),
+                false,
+                rdd,
+                Arc::new(None),
+                self.part.clone(),
+            )))
+        };
 
-        log::debug!("Adding shuffle dependency in subtracted rdd");
-        // vec![Dependency::]
-        Dependency::ShuffleDependency(Arc::new(ShuffleDependency::<K, V, K>::new(
-            self.get_context().new_shuffle_id(),
-            true,
-            self.rdd1.get_rdd_base(),
-            Arc::new(None),
-            self.part.clone(),
-        )));
-
-        todo!()
+        vec![
+            rdd_dep(self.rdd1.get_rdd_base()),
+            rdd_dep(self.rdd2.get_rdd_base()),
+        ]
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        /*
-        val array = new Array[Partition](part.numPartitions)
-        for (i <- 0 until array.length) {
-        // Each CoGroupPartition will depend on rdd1 and rdd2
-        array(i) = new CoGroupPartition(i, Seq(rdd1, rdd2).zipWithIndex.map { case (rdd, j) =>
-            dependencies(j) match {
-            case s: ShuffleDependency[_, _, _] =>
-                None
-            case _ =>
-                Some(new NarrowCoGroupSplitDep(rdd, i, rdd.partitions(i)))
-            }
-        }.toArray)
+        let num_splits = self.part.get_num_of_partitions();
+        let mut splits = Vec::with_capacity(num_splits);
+        let deps = self.get_dependencies();
+        for i in 0..num_splits {
+            let cogrouped_splits: Vec<_> = vec![self.rdd1.get_rdd_base(), self.rdd2.get_rdd_base()]
+                .into_iter()
+                .enumerate()
+                .map(|(j, rdd)| match &deps[j] {
+                    Dependency::ShuffleDependency(s) => CoGroupSplitDep::ShuffleCoGroupSplitDep {
+                        shuffle_id: s.get_shuffle_id(),
+                    },
+                    _ => CoGroupSplitDep::NarrowCoGroupSplitDep {
+                        rdd: rdd.clone(),
+                        split: rdd.splits()[i].clone(),
+                    },
+                })
+                .collect();
+            splits.push(Box::new(CoGroupSplit::new(i, cogrouped_splits)) as Box<dyn Split>)
         }
-        array
-        */
-        todo!()
+        splits
     }
 
-    // TODO: Analyze the possible error in invariance here
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
@@ -153,46 +144,46 @@ where
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        /*
-        val partition = p.asInstanceOf[CoGroupPartition]
-        val map = new JHashMap[K, ArrayBuffer[V]]
-        def getSeq(k: K): ArrayBuffer[V] = {
-          val seq = map.get(k)
-          if (seq != null) {
-            seq
-          } else {
-            val seq = new ArrayBuffer[V]()
-            map.put(k, seq)
-            seq
-          }
-        }
-        def integrate(depNum: Int, op: Product2[K, V] => Unit): Unit = {
-          dependencies(depNum) match {
-            case oneToOneDependency: OneToOneDependency[_] =>
-              val dependencyPartition = partition.narrowDeps(depNum).get.split
-              oneToOneDependency.rdd.iterator(dependencyPartition, context)
-                .asInstanceOf[Iterator[Product2[K, V]]].foreach(op)
-
-            case shuffleDependency: ShuffleDependency[_, _, _] =>
-              val metrics = context.taskMetrics().createTempShuffleReadMetrics()
-              val iter = SparkEnv.get.shuffleManager
-                .getReader(
-                  shuffleDependency.shuffleHandle,
-                  partition.index,
-                  partition.index + 1,
-                  context,
-                  metrics)
-                .read()
-              iter.foreach(op)
-          }
-        }
+        let split = split
+            .downcast::<CoGroupSplit>()
+            .or(Err(Error::DowncastFailure("CoGroupSplit")))?;
+        let mut map: HashMap<K, Vec<V>> = HashMap::new();
+        let deps = self.get_dependencies();
+        let integrate = |dep_num: usize, product: &mut dyn FnMut((&K, &V))| -> Result<()> {
+            match &deps[dep_num] {
+                Dependency::NarrowDependency(_) => todo!(),
+                Dependency::ShuffleDependency(dep) => {
+                    let fut = ShuffleFetcher::fetch::<K, Vec<Box<dyn AnyData>>>(
+                        dep.get_shuffle_id(),
+                        split.get_index(),
+                    );
+                    for (k, c) in futures::executor::block_on(fut)?.into_iter() {
+                        c.into_iter().for_each(|v| {
+                            let v = v.into_any().downcast::<V>().unwrap();
+                            product((&k, &*v));
+                        });
+                    }
+                }
+            }
+            Ok(())
+        };
 
         // the first dep is rdd1; add all values to the map
-        integrate(0, t => getSeq(t._1) += t._2)
+        integrate(0, &mut |(k, v)| {
+            map.entry(k.clone())
+                .or_insert_with(Vec::new)
+                .push(v.clone())
+        })?;
+
         // the second dep is rdd2; remove all of its keys
-        integrate(1, t => map.remove(t._1))
-        map.asScala.iterator.map(t => t._2.iterator.map((t._1, _))).flatten
-        */
-        todo!()
+        integrate(1, &mut |(k, _)| {
+            map.remove(k);
+        })?;
+
+        Ok(Box::new(
+            map.into_iter()
+                .map(|(k, v)| v.into_iter().map(|v| (k.clone(), v)).collect::<Vec<_>>())
+                .flatten(),
+        ))
     }
 }

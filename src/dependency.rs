@@ -168,7 +168,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             partition
         );
         let split = rdd_base.splits()[partition].clone();
-        let aggregator = self.aggregator.clone();
+        let aggregator = &*self.aggregator;
         let num_output_splits = self.partitioner.get_num_of_partitions();
         log::debug!("is cogroup rdd: {}", self.is_cogroup);
         log::debug!("number of output splits: {}", num_output_splits);
@@ -201,12 +201,12 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let bucket_id = partitioner.get_partition(&k);
             let bucket = &mut buckets[bucket_id];
             if let Some(old_v) = bucket.get_mut(&k) {
-                if let Some(aggregator) = &*aggregator {
+                if let Some(ref aggregator) = aggregator {
                     let input = ((old_v.clone(), v),);
                     let output = aggregator.merge_value.call(input);
                     *old_v = output;
                 }
-            } else if let Some(ref aggregator) = &*aggregator {
+            } else if let Some(ref aggregator) = aggregator {
                 bucket.insert(k, aggregator.create_combiner.call((v,)));
             }
         }

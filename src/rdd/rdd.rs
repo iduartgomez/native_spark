@@ -1094,6 +1094,7 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         let other = other.map(Fn!(|x| (x, None::<Self::Item>)));
+        // FIXME: this should be optional; if no partitioner is provided then use narrow deps
         let part = Box::new(HashPartitioner::<Self::Item>::new(self.number_of_splits()))
             as Box<dyn Partitioner>;
         self.map(Fn!(|x| (x, None::<Self::Item>)))

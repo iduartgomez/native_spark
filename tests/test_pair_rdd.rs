@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use vega::*;
 use once_cell::sync::Lazy;
+use vega::*;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 
@@ -131,5 +131,21 @@ fn test_group_by() -> Result<()> {
         ("zero".to_string(), vec![0]),
     ];
     assert_eq!(expected, res);
+    Ok(())
+}
+
+#[test]
+fn test_subtracted() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let rdd1 = vec![1i32, 2, 3, 4, 5];
+    let rdd1 = sc.make_rdd(rdd1, 1);
+
+    let rdd2 = vec![4i32, 5, 6, 7, 8];
+    let rdd2 = sc.make_rdd(rdd2, 1);
+
+    let mut diff = rdd1.subtract(rdd2).collect()?;
+    diff.sort();
+    let expected = vec![1i32, 2, 3];
+    assert_eq!(expected, diff);
     Ok(())
 }
