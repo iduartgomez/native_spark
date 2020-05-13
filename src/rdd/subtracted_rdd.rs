@@ -35,9 +35,14 @@ pub struct SubtractedRdd<K: Data, V: Data, W: Data> {
     #[serde(with = "serde_traitobject")]
     part: Box<dyn Partitioner>,
     vals: Arc<RddVals>,
+    // precomputed deps
+    deps: Vec<Dependency>,
 }
 
-impl<K: Data, V: Data, W: Data> SubtractedRdd<K, V, W> {
+impl<K: Data, V: Data, W: Data> SubtractedRdd<K, V, W>
+where
+    K: Data + Eq + Hash,
+{
     pub fn new(
         rdd1: Arc<dyn Rdd<Item = (K, V)>>,
         rdd2: Arc<dyn Rdd<Item = (K, W)>>,
@@ -45,11 +50,33 @@ impl<K: Data, V: Data, W: Data> SubtractedRdd<K, V, W> {
     ) -> Self {
         let vals = Arc::new(RddVals::new(rdd1.get_context()));
         SubtractedRdd {
+            deps: Self::make_deps(part.clone(), rdd1.get_rdd_base(), rdd2.get_rdd_base()),
             rdd1,
             rdd2,
             part,
             vals,
         }
+    }
+
+    fn make_deps(
+        part: Box<dyn Partitioner>,
+        rdd1: Arc<dyn RddBase>,
+        rdd2: Arc<dyn RddBase>,
+    ) -> Vec<Dependency> {
+        let ctxt = rdd1.get_context();
+        let rdd_dep = |rdd: Arc<dyn RddBase>| {
+            // TODO: custom partitioner case, which should use narrow dependency
+            log::debug!("Adding shuffle dependency in subtracted rdd");
+            Dependency::ShuffleDependency(Arc::new(ShuffleDependency::<K, V, K>::new(
+                ctxt.new_shuffle_id(),
+                false,
+                rdd,
+                Arc::new(None),
+                part.clone(),
+            )))
+        };
+
+        vec![rdd_dep(rdd1), rdd_dep(rdd2)]
     }
 }
 
@@ -66,23 +93,7 @@ where
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        let ctxt = self.get_context();
-        let rdd_dep = |rdd: Arc<dyn RddBase>| {
-            // TODO: custom partitioner case, which should use narrow dependency
-            log::debug!("Adding shuffle dependency in subtracted rdd");
-            Dependency::ShuffleDependency(Arc::new(ShuffleDependency::<K, V, K>::new(
-                ctxt.new_shuffle_id(),
-                false,
-                rdd,
-                Arc::new(None),
-                self.part.clone(),
-            )))
-        };
-
-        vec![
-            rdd_dep(self.rdd1.get_rdd_base()),
-            rdd_dep(self.rdd2.get_rdd_base()),
-        ]
+        self.deps.clone()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
